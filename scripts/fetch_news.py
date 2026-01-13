@@ -23,7 +23,10 @@ ARCHIVE_DIR = DATA_DIR / "archive"
 
 # Gemini API設定
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+
+# 日付フィルタリング設定（過去何日以内の記事を取得するか）
+DATE_RANGE_DAYS = 3  # 前日のニュースが少ない場合に備えて3日以内を許容
 
 # RSSフィード一覧
 RSS_FEEDS = {
@@ -118,8 +121,8 @@ def parse_published_datetime(published_str: str) -> Optional[datetime]:
             return None
 
 
-def is_published_on_date(published_str: str, target_date: str) -> bool:
-    """記事が指定日に公開されたかどうかを判定"""
+def is_published_within_days(published_str: str, target_date: str, days: int = 1) -> bool:
+    """記事が指定日から過去N日以内に公開されたかどうかを判定"""
     dt = parse_published_datetime(published_str)
     if not dt:
         return False
@@ -131,8 +134,13 @@ def is_published_on_date(published_str: str, target_date: str) -> bool:
     else:
         dt_jst = dt.replace(tzinfo=jst)
     
-    article_date = dt_jst.strftime("%Y-%m-%d")
-    return article_date == target_date
+    # target_dateをdatetimeに変換
+    target_dt = datetime.strptime(target_date, "%Y-%m-%d").replace(tzinfo=jst)
+    # 許容範囲の開始日（target_dateからdays日前）
+    start_dt = target_dt - timedelta(days=days-1)
+    
+    article_date = dt_jst.date()
+    return start_dt.date() <= article_date <= target_dt.date()
 
 
 def fetch_article_content(url: str) -> str:
@@ -249,18 +257,18 @@ def get_fallback_comment(category: str) -> str:
     return random.choice(comments)
 
 
-def fetch_rss_entries(feed_url: str, max_entries: int = 10, target_date: str = None) -> list:
+def fetch_rss_entries(feed_url: str, max_entries: int = 10, target_date: str = None, date_range_days: int = 1) -> list:
     """RSSフィードからエントリーを取得（日付フィルタリング対応）"""
     try:
         feed = feedparser.parse(feed_url)
         entries = []
 
-        for entry in feed.entries[:max_entries * 3]:  # 多めに取得してフィルタリング
+        for entry in feed.entries[:max_entries * 5]:  # 多めに取得してフィルタリング
             published_raw = entry.get("published", "")
             
             # 日付フィルタリング（target_dateが指定されている場合）
             if target_date and published_raw:
-                if not is_published_on_date(published_raw, target_date):
+                if not is_published_within_days(published_raw, target_date, date_range_days):
                     continue
             
             clean_title = clean_html_text(entry.get("title", ""))
@@ -450,13 +458,13 @@ JSONのみを出力してください。
     }
 
 
-def process_news_category(category: str, max_articles: int = 5, target_date: str = None) -> list:
+def process_news_category(category: str, max_articles: int = 5, target_date: str = None, date_range_days: int = 1) -> list:
     """カテゴリごとにニュースを処理"""
     all_entries = []
 
     # RSSフィードからエントリーを収集（日付フィルタリング付き）
     for feed in RSS_FEEDS.get(category, []):
-        entries = fetch_rss_entries(feed["url"], max_entries=10, target_date=target_date)
+        entries = fetch_rss_entries(feed["url"], max_entries=10, target_date=target_date, date_range_days=date_range_days)
         for entry in entries:
             entry["source"] = feed["name"]
         all_entries.extend(entries)
@@ -543,7 +551,7 @@ def main():
     today = datetime.now()
     target_date = (today - timedelta(days=1)).strftime("%Y-%m-%d")
 
-    print(f"\n対象日: {target_date}")
+    print(f"\n対象日: {target_date}（過去{DATE_RANGE_DAYS}日以内の記事を取得）")
     print(f"Gemini API: {'設定済み' if GEMINI_API_KEY else '未設定（フォールバックモード）'}")
 
     # 各カテゴリのニュースを処理
@@ -557,7 +565,7 @@ def main():
 
     for category in ["ai", "minpaku", "rental"]:
         print(f"\n[{category.upper()}] ニュースを収集中...")
-        articles = process_news_category(category, max_articles=5, target_date=target_date)
+        articles = process_news_category(category, max_articles=5, target_date=target_date, date_range_days=DATE_RANGE_DAYS)
         news_data[category] = articles
         print(f"  → {len(articles)}件の記事を処理しました")
 
