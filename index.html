@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>あおのデイリーニュース | AI・民泊・レンタルスペース</title>
+    <meta name="description" content="AI、民泊、レンタルスペースの最新ニュースを毎日お届け。オーナー目線での解説と活用アイデアも。">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <header class="header">
+        <div class="header-inner">
+            <h1 class="site-title">
+                <span class="title-icon">&#x1F4F0;</span>
+                あおのデイリーニュース
+            </h1>
+            <p class="site-tagline">AI・民泊・レンタルスペースの最新情報を毎朝お届け</p>
+        </div>
+    </header>
+
+    <nav class="category-nav">
+        <div class="nav-inner">
+            <button class="category-tab active" data-category="ai">
+                <span class="tab-icon">&#x1F916;</span>
+                AI
+            </button>
+            <button class="category-tab" data-category="minpaku">
+                <span class="tab-icon">&#x1F3E0;</span>
+                民泊
+            </button>
+            <button class="category-tab" data-category="rental">
+                <span class="tab-icon">&#x1F3E2;</span>
+                レンタルスペース
+            </button>
+        </div>
+    </nav>
+
+    <main class="main-content">
+        <div class="content-wrapper">
+            <!-- 日付表示 -->
+            <div class="date-display">
+                <span class="date-label">更新日:</span>
+                <span id="current-date" class="date-value">-</span>
+            </div>
+
+            <!-- ニュースコンテナ -->
+            <div id="news-container" class="news-container">
+                <!-- AIニュース -->
+                <section id="ai-section" class="news-section active">
+                    <div class="section-header">
+                        <h2 class="section-title">
+                            <span class="section-icon">&#x1F916;</span>
+                            AI最新ニュース
+                        </h2>
+                        <p class="section-desc">ChatGPT, Claude, Gemini, Manus, Gensparkなど主要AIツールの最新情報</p>
+                    </div>
+                    <div id="ai-news" class="news-list">
+                        <div class="loading">ニュースを読み込み中...</div>
+                    </div>
+                </section>
+
+                <!-- 民泊ニュース -->
+                <section id="minpaku-section" class="news-section">
+                    <div class="section-header">
+                        <h2 class="section-title">
+                            <span class="section-icon">&#x1F3E0;</span>
+                            民泊ニュース
+                        </h2>
+                        <p class="section-desc">規制動向・運営ノウハウ・市場トレンドをオーナー目線で解説</p>
+                    </div>
+                    <div id="minpaku-news" class="news-list">
+                        <div class="loading">ニュースを読み込み中...</div>
+                    </div>
+                </section>
+
+                <!-- レンタルスペースニュース -->
+                <section id="rental-section" class="news-section">
+                    <div class="section-header">
+                        <h2 class="section-title">
+                            <span class="section-icon">&#x1F3E2;</span>
+                            レンタルスペースニュース
+                        </h2>
+                        <p class="section-desc">インスタベース・スペースマーケット等プラットフォーム情報・新ジャンル動向</p>
+                    </div>
+                    <div id="rental-news" class="news-list">
+                        <div class="loading">ニュースを読み込み中...</div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- アーカイブセクション -->
+            <aside class="archive-section">
+                <h3 class="archive-title">
+                    <span class="archive-icon">&#x1F4C1;</span>
+                    過去の記事
+                </h3>
+                <div id="archive-list" class="archive-list">
+                    <!-- JSで動的に生成 -->
+                </div>
+            </aside>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-inner">
+            <p class="copyright">&copy; 2024 あおのデイリーニュース</p>
+            <p class="footer-note">毎朝7時に自動更新 | 情報は参考程度にご利用ください</p>
+        </div>
+    </footer>
+
+    <script src="js/main.js"></script>
+</body>
+</html>
