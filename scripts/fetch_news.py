@@ -9,11 +9,12 @@ import json
 import re
 import random
 from html import unescape
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import feedparser
 import requests
 from typing import Optional
+from email.utils import parsedate_to_datetime
 
 # 設定
 BASE_DIR = Path(__file__).parent.parent
@@ -93,7 +94,6 @@ def parse_published_date(published_str: str) -> str:
         return ""
 
     try:
-        from email.utils import parsedate_to_datetime
         dt = parsedate_to_datetime(published_str)
         return dt.strftime("%Y年%m月%d日 %H:%M")
     except Exception:
@@ -102,6 +102,110 @@ def parse_published_date(published_str: str) -> str:
             return dt.strftime("%Y年%m月%d日 %H:%M")
         except Exception:
             return published_str[:16] if len(published_str) > 16 else published_str
+
+
+def parse_published_datetime(published_str: str) -> Optional[datetime]:
+    """配信日をdatetimeオブジェクトとしてパース"""
+    if not published_str:
+        return None
+
+    try:
+        return parsedate_to_datetime(published_str)
+    except Exception:
+        try:
+            return datetime.fromisoformat(published_str.replace("Z", "+00:00"))
+        except Exception:
+            return None
+
+
+def is_published_on_date(published_str: str, target_date: str) -> bool:
+    """記事が指定日に公開されたかどうかを判定"""
+    dt = parse_published_datetime(published_str)
+    if not dt:
+        return False
+    
+    # タイムゾーンを考慮してJSTに変換
+    jst = timezone(timedelta(hours=9))
+    if dt.tzinfo:
+        dt_jst = dt.astimezone(jst)
+    else:
+        dt_jst = dt.replace(tzinfo=jst)
+    
+    article_date = dt_jst.strftime("%Y-%m-%d")
+    return article_date == target_date
+
+
+def fetch_article_content(url: str) -> str:
+    """元記事のURLから本文を取得"""
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        response = requests.get(url, headers=headers, timeout=10, allow_redirects=True)
+        response.raise_for_status()
+        
+        html = response.text
+        
+        # メタタグからdescriptionを取得
+        og_desc = re.search(r'<meta[^>]*property=["\']og:description["\'][^>]*content=["\']([^"\']+)["\']', html, re.IGNORECASE)
+        if not og_desc:
+            og_desc = re.search(r'<meta[^>]*content=["\']([^"\']+)["\'][^>]*property=["\']og:description["\']', html, re.IGNORECASE)
+        
+        meta_desc = re.search(r'<meta[^>]*name=["\']description["\'][^>]*content=["\']([^"\']+)["\']', html, re.IGNORECASE)
+        if not meta_desc:
+            meta_desc = re.search(r'<meta[^>]*content=["\']([^"\']+)["\'][^>]*name=["\']description["\']', html, re.IGNORECASE)
+        
+        # 優先順位: og:description > meta description
+        description = ""
+        if og_desc:
+            description = og_desc.group(1)
+        elif meta_desc:
+            description = meta_desc.group(1)
+        
+        # HTMLエンティティをデコード
+        description = unescape(description)
+        
+        # 記事本文を抽出（article, main, .article, .content などから）
+        article_content = ""
+        
+        # <article>タグから抽出
+        article_match = re.search(r'<article[^>]*>(.*?)</article>', html, re.DOTALL | re.IGNORECASE)
+        if article_match:
+            article_content = article_match.group(1)
+        else:
+            # <main>タグから抽出
+            main_match = re.search(r'<main[^>]*>(.*?)</main>', html, re.DOTALL | re.IGNORECASE)
+            if main_match:
+                article_content = main_match.group(1)
+        
+        # 本文からテキストを抽出
+        if article_content:
+            # pタグの内容を抽出
+            paragraphs = re.findall(r'<p[^>]*>(.*?)</p>', article_content, re.DOTALL | re.IGNORECASE)
+            if paragraphs:
+                # HTMLタグを除去してテキストのみ取得
+                text_parts = []
+                for p in paragraphs[:5]:  # 最初の5段落
+                    clean_p = clean_html_text(p)
+                    if len(clean_p) > 30:  # 短すぎる段落は除外
+                        text_parts.append(clean_p)
+                if text_parts:
+                    article_content = " ".join(text_parts)[:1000]
+                else:
+                    article_content = ""
+        
+        # 本文が取得できなかった場合はdescriptionを使用
+        if not article_content and description:
+            return description[:500]
+        
+        if article_content:
+            return article_content[:1000]
+        
+        return description[:500] if description else ""
+        
+    except Exception as e:
+        print(f"  記事取得エラー ({url[:50]}...): {e}")
+        return ""
 
 
 def clean_html_text(text: str) -> str:
@@ -145,14 +249,20 @@ def get_fallback_comment(category: str) -> str:
     return random.choice(comments)
 
 
-def fetch_rss_entries(feed_url: str, max_entries: int = 10) -> list:
-    """RSSフィードからエントリーを取得"""
+def fetch_rss_entries(feed_url: str, max_entries: int = 10, target_date: str = None) -> list:
+    """RSSフィードからエントリーを取得（日付フィルタリング対応）"""
     try:
         feed = feedparser.parse(feed_url)
         entries = []
 
-        for entry in feed.entries[:max_entries]:
+        for entry in feed.entries[:max_entries * 3]:  # 多めに取得してフィルタリング
             published_raw = entry.get("published", "")
+            
+            # 日付フィルタリング（target_dateが指定されている場合）
+            if target_date and published_raw:
+                if not is_published_on_date(published_raw, target_date):
+                    continue
+            
             clean_title = clean_html_text(entry.get("title", ""))
             entries.append({
                 "title": clean_title,
@@ -161,6 +271,9 @@ def fetch_rss_entries(feed_url: str, max_entries: int = 10) -> list:
                 "publishedDate": parse_published_date(published_raw),
                 "summary": extract_entry_summary(entry)[:500],
             })
+            
+            if len(entries) >= max_entries:
+                break
 
         return entries
     except Exception as e:
@@ -215,18 +328,21 @@ def call_gemini_api(prompt: str) -> Optional[str]:
         return None
 
 
-def generate_ai_summary(entry: dict) -> dict:
+def generate_ai_summary(entry: dict, article_content: str = "") -> dict:
     """AIニュースの要約とコメントを生成"""
+    # 本文情報を追加
+    content_info = f"\n本文: {article_content[:800]}" if article_content else ""
+    
     prompt = f"""
 以下のAI関連ニュースについて、日本語で要約とコメントを作成してください。
 
 タイトル: {entry['title']}
-概要: {entry['summary']}
+概要: {entry['summary']}{content_info}
 
 出力形式（JSON）:
 {{
     "summary": "ニュースの要点を2-3文で初心者にもわかりやすく説明",
-    "detail": "もう少し詳しい解説（あれば）",
+    "detail": "記事の詳細な内容を3-5文で説明。具体的な数字や事実があれば含める",
     "aoComment": "このAI技術を民泊やレンタルスペースビジネスに活用するとしたら、どんなことができるか？という視点でのアイデアや発想のヒントを1-2文で"
 }}
 
@@ -246,25 +362,29 @@ JSONのみを出力してください。
 
     # フォールバック
     fallback_summary = entry['summary'][:200] if entry['summary'] else f"「{entry['title']}」について報じられています。"
+    fallback_detail = article_content[:300] if article_content else ""
     return {
         "summary": fallback_summary,
-        "detail": "",
+        "detail": fallback_detail,
         "aoComment": get_fallback_comment("ai")
     }
 
 
-def generate_minpaku_summary(entry: dict) -> dict:
+def generate_minpaku_summary(entry: dict, article_content: str = "") -> dict:
     """民泊ニュースの要約とコメントを生成"""
+    # 本文情報を追加
+    content_info = f"\n本文: {article_content[:800]}" if article_content else ""
+    
     prompt = f"""
 以下の民泊関連ニュースについて、民泊オーナーの立場で要約とコメントを作成してください。
 
 タイトル: {entry['title']}
-概要: {entry['summary']}
+概要: {entry['summary']}{content_info}
 
 出力形式（JSON）:
 {{
     "summary": "ニュースの要点を2-3文で説明",
-    "detail": "オーナーが知っておくべき詳細情報（あれば）",
+    "detail": "オーナーが知っておくべき詳細情報を3-5文で。規制内容、影響範囲、時期などがあれば含める",
     "aoComment": "民泊オーナーとして、このニュースをどう活かすか、どう対応すべきかのアドバイスを1-2文で"
 }}
 
@@ -282,25 +402,29 @@ JSONのみを出力してください。
             pass
 
     fallback_summary = entry['summary'][:200] if entry['summary'] else f"「{entry['title']}」について報じられています。"
+    fallback_detail = article_content[:300] if article_content else ""
     return {
         "summary": fallback_summary,
-        "detail": "",
+        "detail": fallback_detail,
         "aoComment": get_fallback_comment("minpaku")
     }
 
 
-def generate_rental_summary(entry: dict) -> dict:
+def generate_rental_summary(entry: dict, article_content: str = "") -> dict:
     """レンタルスペースニュースの要約とコメントを生成"""
+    # 本文情報を追加
+    content_info = f"\n本文: {article_content[:800]}" if article_content else ""
+    
     prompt = f"""
 以下のレンタルスペース関連ニュースについて、スペースオーナーの立場で要約とコメントを作成してください。
 
 タイトル: {entry['title']}
-概要: {entry['summary']}
+概要: {entry['summary']}{content_info}
 
 出力形式（JSON）:
 {{
     "summary": "ニュースの要点を2-3文で説明",
-    "detail": "オーナーが知っておくべき詳細情報（あれば）",
+    "detail": "オーナーが知っておくべき詳細情報を3-5文で。市場動向、新サービス、利用トレンドなどがあれば含める",
     "aoComment": "レンタルスペースオーナーとして、このニュースをどう活かすか、新しいスペースジャンルのアイデアなどを1-2文で"
 }}
 
@@ -318,23 +442,25 @@ JSONのみを出力してください。
             pass
 
     fallback_summary = entry['summary'][:200] if entry['summary'] else f"「{entry['title']}」について報じられています。"
+    fallback_detail = article_content[:300] if article_content else ""
     return {
         "summary": fallback_summary,
-        "detail": "",
+        "detail": fallback_detail,
         "aoComment": get_fallback_comment("rental")
     }
 
 
-def process_news_category(category: str, max_articles: int = 5) -> list:
+def process_news_category(category: str, max_articles: int = 5, target_date: str = None) -> list:
     """カテゴリごとにニュースを処理"""
     all_entries = []
 
-    # RSSフィードからエントリーを収集
+    # RSSフィードからエントリーを収集（日付フィルタリング付き）
     for feed in RSS_FEEDS.get(category, []):
-        entries = fetch_rss_entries(feed["url"], max_entries=5)
+        entries = fetch_rss_entries(feed["url"], max_entries=10, target_date=target_date)
         for entry in entries:
             entry["source"] = feed["name"]
         all_entries.extend(entries)
+        print(f"    {feed['name']}: {len(entries)}件")
 
     # 重複除去（タイトルベース）
     seen_titles = set()
@@ -345,18 +471,25 @@ def process_news_category(category: str, max_articles: int = 5) -> list:
             seen_titles.add(title_key)
             unique_entries.append(entry)
 
+    print(f"    重複除去後: {len(unique_entries)}件")
+
     # 最新のものを選択
     processed = []
     for entry in unique_entries[:max_articles]:
+        print(f"    処理中: {entry['title'][:40]}...")
+        
+        # 元記事から本文を取得
+        article_content = fetch_article_content(entry["link"])
+        
         # カテゴリに応じた要約生成
         if category == "ai":
-            summary_data = generate_ai_summary(entry)
-            tools = detect_ai_tools(entry["title"] + " " + entry.get("summary", ""))
+            summary_data = generate_ai_summary(entry, article_content)
+            tools = detect_ai_tools(entry["title"] + " " + entry.get("summary", "") + " " + article_content)
         elif category == "minpaku":
-            summary_data = generate_minpaku_summary(entry)
+            summary_data = generate_minpaku_summary(entry, article_content)
             tools = []
         else:  # rental
-            summary_data = generate_rental_summary(entry)
+            summary_data = generate_rental_summary(entry, article_content)
             tools = []
 
         article = {
@@ -424,7 +557,7 @@ def main():
 
     for category in ["ai", "minpaku", "rental"]:
         print(f"\n[{category.upper()}] ニュースを収集中...")
-        articles = process_news_category(category, max_articles=5)
+        articles = process_news_category(category, max_articles=5, target_date=target_date)
         news_data[category] = articles
         print(f"  → {len(articles)}件の記事を処理しました")
 
