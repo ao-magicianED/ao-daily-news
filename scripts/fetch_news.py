@@ -7,6 +7,7 @@ RSSフィードからニュースを取得し、Gemini APIで要約・コメン�
 import os
 import json
 import re
+from html import unescape
 from datetime import datetime, timedelta
 from pathlib import Path
 import feedparser
@@ -71,6 +72,25 @@ def parse_published_date(published_str: str) -> str:
             return published_str[:16] if len(published_str) > 16 else published_str
 
 
+def clean_html_text(text: str) -> str:
+    """HTMLを取り除いて読みやすいテキストに整形"""
+    if not text:
+        return ""
+    no_tags = re.sub(r"<[^>]+>", " ", text)
+    normalized = re.sub(r"\s+", " ", no_tags).strip()
+    return unescape(normalized)
+
+
+def extract_entry_summary(entry: dict) -> str:
+    """RSSエントリーから本文候補を抽出"""
+    raw_summary = entry.get("summary", "")
+    if not raw_summary:
+        contents = entry.get("content", [])
+        if contents and isinstance(contents, list):
+            raw_summary = contents[0].get("value", "")
+    return clean_html_text(raw_summary)
+
+
 def fetch_rss_entries(feed_url: str, max_entries: int = 10) -> list:
     """RSSフィードからエントリーを取得"""
     try:
@@ -79,12 +99,13 @@ def fetch_rss_entries(feed_url: str, max_entries: int = 10) -> list:
 
         for entry in feed.entries[:max_entries]:
             published_raw = entry.get("published", "")
+            clean_title = clean_html_text(entry.get("title", ""))
             entries.append({
-                "title": entry.get("title", ""),
+                "title": clean_title,
                 "link": entry.get("link", ""),
                 "published": published_raw,
                 "publishedDate": parse_published_date(published_raw),
-                "summary": entry.get("summary", "")[:500] if entry.get("summary") else "",
+                "summary": extract_entry_summary(entry)[:500],
             })
 
         return entries
