@@ -54,6 +54,23 @@ AI_TOOLS = {
 }
 
 
+def parse_published_date(published_str: str) -> str:
+    """配信日をパースして日本語形式に変換"""
+    if not published_str:
+        return ""
+
+    try:
+        from email.utils import parsedate_to_datetime
+        dt = parsedate_to_datetime(published_str)
+        return dt.strftime("%Y年%m月%d日 %H:%M")
+    except Exception:
+        try:
+            dt = datetime.fromisoformat(published_str.replace("Z", "+00:00"))
+            return dt.strftime("%Y年%m月%d日 %H:%M")
+        except Exception:
+            return published_str[:16] if len(published_str) > 16 else published_str
+
+
 def fetch_rss_entries(feed_url: str, max_entries: int = 10) -> list:
     """RSSフィードからエントリーを取得"""
     try:
@@ -61,10 +78,12 @@ def fetch_rss_entries(feed_url: str, max_entries: int = 10) -> list:
         entries = []
 
         for entry in feed.entries[:max_entries]:
+            published_raw = entry.get("published", "")
             entries.append({
                 "title": entry.get("title", ""),
                 "link": entry.get("link", ""),
-                "published": entry.get("published", ""),
+                "published": published_raw,
+                "publishedDate": parse_published_date(published_raw),
                 "summary": entry.get("summary", "")[:500] if entry.get("summary") else "",
             })
 
@@ -266,6 +285,7 @@ def process_news_category(category: str, max_articles: int = 5) -> list:
             "title": entry["title"],
             "url": entry["link"],
             "source": entry.get("source", ""),
+            "publishedDate": entry.get("publishedDate", ""),
             "summary": summary_data.get("summary", ""),
             "detail": summary_data.get("detail", ""),
             "aoComment": summary_data.get("aoComment", ""),
