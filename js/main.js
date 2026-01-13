@@ -121,54 +121,84 @@ function renderCategoryNews(containerId, newsItems, category) {
     const container = document.getElementById(containerId);
     if (!container) return;
 
-    container.innerHTML = newsItems.map(item => createNewsCard(item, category)).join('');
+    container.innerHTML = newsItems.map((item, index) => createNewsCard(item, category, index)).join('');
+
+    // クリックイベントを設定
+    setupCardToggle(container);
+}
+
+/**
+ * カードの開閉イベントを設定
+ */
+function setupCardToggle(container) {
+    const cards = container.querySelectorAll('.news-card');
+    cards.forEach(card => {
+        const header = card.querySelector('.news-card-header');
+        header.addEventListener('click', () => {
+            card.classList.toggle('expanded');
+        });
+    });
 }
 
 /**
  * ニュースカードのHTML生成
  */
-function createNewsCard(item, category) {
+function createNewsCard(item, category, index) {
     const toolBadges = item.tools
         ? `<div class="ai-tools-badge">
             ${item.tools.map(tool => `<span class="tool-badge ${tool.toLowerCase()}">${tool}</span>`).join('')}
            </div>`
         : '';
 
+    // 配信日の表示
+    const publishedDate = item.publishedDate
+        ? `<span class="news-date">${escapeHtml(item.publishedDate)}</span>`
+        : '';
+
+    // 掲載元リンク
+    const sourceLink = item.url
+        ? `<a href="${item.url}" target="_blank" rel="noopener noreferrer" class="source-link" onclick="event.stopPropagation();">
+            元記事を読む <span class="link-icon">&#x2197;</span>
+           </a>`
+        : '';
+
     return `
-        <article class="news-card ${category}">
-            <div class="news-header">
-                <h3 class="news-title">
-                    ${item.url
-                        ? `<a href="${item.url}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>`
-                        : escapeHtml(item.title)
-                    }
-                </h3>
-                ${item.source
-                    ? `<span class="news-source">${escapeHtml(item.source)}</span>`
+        <article class="news-card ${category}" data-index="${index}">
+            <div class="news-card-header">
+                <div class="news-card-title-area">
+                    <h3 class="news-title">${escapeHtml(item.title)}</h3>
+                    <div class="news-meta">
+                        ${item.source ? `<span class="news-source">${escapeHtml(item.source)}</span>` : ''}
+                        ${publishedDate}
+                    </div>
+                </div>
+                <span class="toggle-icon">&#x25BC;</span>
+            </div>
+
+            <div class="news-card-body">
+                <div class="news-summary">
+                    <h4>まとめ</h4>
+                    <p>${escapeHtml(item.summary)}</p>
+                    ${toolBadges}
+                </div>
+
+                ${item.detail
+                    ? `<div class="news-detail">
+                        <h4>詳細</h4>
+                        <p>${escapeHtml(item.detail)}</p>
+                       </div>`
                     : ''
                 }
-            </div>
 
-            <div class="news-summary">
-                <h4>まとめ</h4>
-                <p>${escapeHtml(item.summary)}</p>
-                ${toolBadges}
-            </div>
-
-            ${item.detail
-                ? `<div class="news-summary">
-                    <h4>詳細</h4>
-                    <p>${escapeHtml(item.detail)}</p>
-                   </div>`
-                : ''
-            }
-
-            <div class="ao-comment">
-                <div class="ao-comment-header">
-                    <span class="ao-avatar">あ</span>
-                    あおの一言
+                <div class="ao-comment">
+                    <div class="ao-comment-header">
+                        <span class="ao-avatar">あ</span>
+                        あおの一言
+                    </div>
+                    <p class="ao-comment-text">${escapeHtml(item.aoComment)}</p>
                 </div>
-                <p class="ao-comment-text">${escapeHtml(item.aoComment)}</p>
+
+                ${sourceLink ? `<div class="source-link-area">${sourceLink}</div>` : ''}
             </div>
         </article>
     `;
